@@ -1,0 +1,277 @@
+---
+title: "Homework 6"
+output:
+  pdf_document: 
+    fig_caption: yes
+    fig_crop: no
+    keep_tex: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    
+  html_notebook: default
+---
+```{r,echo=FALSE,warning=FALSE}
+ library(knitr)
+  opts_chunk$set(fig.path='figure/graphics-', 
+                 cache.path='cache/graphics-', 
+                 fig.align='center',
+                 external=TRUE,
+                 echo=TRUE,
+                 warning=FALSE,
+                 fig.pos='H'
+                )
+  a4width<- 8.3
+  a4height<- 11.7
+```
+
+
+importing libraries used
+```{r}
+library('tidyverse')
+library('emmeans')
+library('afex')
+library('cowplot')
+```
+
+Past research has shown that people consistently believe that others are more easily manipulated by external influences than they themselves are – a phenomenon called the third-person effect (Davison, 1983). Cornwell and Krantz (2014) have investigated whether support for public policies aimed at changing behavior using incentives and other decision “nudges” is affected by this bias. To this end, they have asked participants to rate their support for various policies in different presentation formats. In their Study 2, participants were randomly assigned to one of four conditions, a second-person condition (“you”), a third-person condition (“people”), and two further control conditions. 
+
+For each policy, participants were asked to indicate the degree (on scales from 1 to 7) to which they support such a policy (1 indicating “not at all” and 7 indicating “very strongly”), the degree to which they thought the policy was likely to achieve its intended goals (1 indicating “very unlikely” and 7 indicating “very likely”), and the degree to which they thought the policy would result in unintended consequences (with, again, 1 indicating “very unlikely” and 7 indicating “very likely”). Each participant provided responses for 8 of the 16 different scenarios.
+
+The main hypothesis was that the third-person perspective will lead to higher support judgments than the second-person perspective. An additional research question was whether the level of the support of the third-person perspective or the second-person perspective differed from the more neutral (passive) and no-justification conditions.
+
+import the dataset:
+```{r, message=FALSE}
+d1 <- read_csv("cornwell_krantz_2014_s2.csv") %>%
+  mutate(
+    condition =
+      factor(
+        condition,
+        levels = 1:4,
+        labels = c("third-person", "second-person", "passive", "no-justification")
+      ))
+head(d1)
+```
+
+
+
+# Task 1
+#### Count the number of observations (i.e., rows) for each of the participants. Do all participants have the same number of observations?
+```{r}
+d1 %>% group_by(id) %>% summarise(n=n()) %>% ggplot(aes(x=id,y=n)) + geom_line()
+```
+There are 8 observations per participant and all participants have the same number of observations
+
+
+#### Count the number of participants per `condition`
+```{r}
+d1 %>% group_by(condition) %>% summarise(n=n_distinct(id))
+```
+
+
+#### Create a `tibble` for which the first column is `scenario` and columns two to five each contain the number of times each scenario appeared in one of the conditions (i.e., column two to five each contain the number of times a scenario appeared for one condition)
+```{r, message=FALSE}
+(t1 <- d1 %>% group_by(scenario,condition) %>% summarise(n=n()) %>% 
+   pivot_wider(names_from=condition,values_from=n))
+
+```
+
+
+
+# Task 2
+Calculate three ANOVAs with IV `condition` and three different DVs, `support`, `achieve`, and `unintended`, using `afex`.
+```{r, warning=FALSE}
+a1 <- aov_car(support ~ condition + Error(id), d1)
+a2 <- aov_car(achieve ~ condition + Error(id), d1)
+a3 <-  aov_car(unintended ~ condition + Error(id), d1)
+```
+The ANOVA tests the following hypotheses:
+$$ H_0:The\ effects\ on\ the\ DV\ are\ equal\ across\ all\ conditions\ v.\ H_1:For\ at\ least\ one\ condition,\ the\ effects\ on\ the\ DV\ differ  $$
+```{r}
+a1
+```
+For `support` the conditions are only statistically significant at the 10% level. For significance levels of under 10%, we fail to reject the null hypothesis that support levels are the same across the different conditions
+
+```{r}
+a2
+```
+For `achieve`, we reject the null hypothesis at the 5% significance level that achieve levels are the same across the different conditions.
+
+```{r}
+a3
+```
+We fail to reject the null hypothesis that unintended levels are the same across different conditions
+
+
+
+# Task 3
+Produce a single composite score `acceptability` from the three variables `support`, `achieve`, and `unintended`. Create this such that higher values indicate a higher acceptability (i.e., support) for the respective policy (i.e., make sure to re-code variables as necessary).
+
+Calculate an ANOVA with factor `condition` on the composite score `acceptability`. Calculate this ANOVA once using `afex` and once using the combination of `lm` and `car::Anova()`.
+
+First, creating the composite variable `acceptability` given by the following equation:
+$$ acceptability=\frac{support+achieve+(8-unintended)}{3} $$
+```{r}
+d1 <- d1 %>% mutate(acceptability=(support + achieve + (8-unintended))/3)
+```
+
+Then, calculating ANOVA for `acceptability` using `afex`
+```{r,warning=FALSE}
+a4 <- aov_car(acceptability ~ condition + Error(id), d1)
+a4
+```
+For `acceptability` the conditions are only statistically significant at the 10% level. For significance levels of under 10%, we fail to reject the null hypothesis that acceptability levels are the same across the different conditions.
+
+Comparing with `car::Anova()`
+```{r}
+l1 <- lm(acceptability ~ condition, d1)
+car::Anova(l1,type=3)
+```
+This gives us different results because it is run on unaggregated data unlike `afex` which automatically aggregates data using the mean when there are more than one observations per cell.
+
+Aggregating data per participant using mean and then running `car::Anova()`
+```{r, message=FALSE}
+d2 <- d1 %>% group_by(id,condition) %>% summarise(support=mean(support),achieve=mean(achieve),unintended=mean(unintended),
+                                                  acceptability=mean(acceptability))
+head(d2)
+```
+```{r}
+l2 <- lm(acceptability ~ condition, d2)
+car::Anova(l2,type=3)
+```
+Now they produce identical outputs.
+
+
+
+# Task 4
+Create a plot for each of the four ANOVAs calculated so far.
+
+```{r}
+p1 <- afex_plot(a1,'condition')
+p2 <- afex_plot(a2,'condition')
+p3 <- afex_plot(a3,'condition')
+p4 <- afex_plot(a4,'condition')
+plot_grid(p1,p2,p3,p4,nrow=2)
+```
+
+
+
+# Task 5
+Apply the following contrasts to the ANOVA(s) with a significant effect of condition as well as the ANOVA
+with acceptability as DV. The contrasts should compare the means of the following conditions (or com-
+bination of conditions):
+* Third person versus other conditions (i.e., mean of other conditions).
+```{r}
+c1 <- list(III_v_other=c(1,-1/3,-1/3,-1/3))
+```
+* Third person versus second person.
+```{r}
+c2 <- list(III_v_II=c(1,-1,0,0))
+```
+* Third person versus second and passive.
+```{r}
+c3 <- list(III_v_IIandP=c(1,-1/2,-1/2,0))
+```
+* Second person versus other conditions.
+```{r}
+c4 <- list(II_v_other=c(-1/3,1,-1/3,-1/3))
+```
+* Three contrasts, each testing the no-justification versus one of the other conditions.
+```{r}
+c5 <- list(NJ_v_III=c(-1,0,0,1))
+c6 <- list(NJ_v_II=c(0,-1,0,1))
+c7 <- list(NJ_v_P=c(0,0,-1,1))
+```
+
+Only `achieve` was statistically significant.
+
+`emmeans` for `achieve`:
+```{r}
+(e1 <- emmeans(a2,'condition'))
+```
+`emmeans` for `acceptability`
+```{r}
+(e2 <- emmeans(a4,'condition'))
+```
+
+Constructing a list of contrasts:
+```{r}
+contrasts = list(c1,c2,c3,c4,c5,c6,c7)
+```
+
+
+Contrasts for `achieve`:
+```{r}
+for (c in contrasts) {
+  print(contrast(e1,c))
+}
+```
+Contrasts for `acceptability`:
+```{r}
+for (c in contrasts) {
+  print(contrast(e2,c,adjust='holm'))
+}
+```
+
+#### Which of the contrasts are significant for the ANOVA(s) with a significant effect of condition?
+Significant contrasts when considering `achieve` are the third-person v. all others; third-person v. second-person; third-person v. second-person and passive; and no-justification v. third-person. This implies that the third-person condition achieves better `achieve` scores while the no-justification achieves the worst `achieve` scores. The results of the other conditions relatively speaking are inconclusive.
+
+When considering `acceptability`, only third-person v. other; and no-justification v. third-person are statistically significant at least the 5% level. This has the same implictaion as above but for `acceptability` scores. 
+
+
+#### Does the pattern of significant contrasts change if you do not control for multiple testing compared to when using the Bonferroni-Holm method?
+```{r}
+for (c in contrasts) {
+  print(contrast(e1,c,adjust='holm'))
+}
+```
+```{r}
+for (c in contrasts) {
+  print(contrast(e2,c,adjust='holm'))
+}
+```
+Thus, the results are the same regardless of control for multiple testing.
+
+
+#### Which contrasts do you think are the most relevant to the research questions? Apply those contrasts using the Bonferroni-Holm method. Which substantive conclusions are justified, given these results?
+According to the research question, the contrasts which are relevant are: third-person v. second-person; third-person and second-person v. no-justification and passive; third-person v. no-justification and passive; and second-person v. no-justification and passive.
+
+```{r}
+c8 <- list(IIInII_v_NJnP=c(1/2,1/2,-1/2,-1/2))
+c9 <- list(III_v_NJnP=c(1,0,-1/2,-1/2))
+c10 <- list(II_v_NJnP=c(0,1,-1/2,-1/2))
+contrasts2 <- list(c2,c8,c9,c10)
+for (c in contrasts2) {
+  print(contrast(e2,c,adjust='holm'))
+}
+```
+Therefore, the conclusion that the third-person condition performs best in increasing `acceptability` as compared to the other conditions hold true given the statistical significance of the relevant contrasts.
+
+
+
+# Task 6
+Calculate the means and standard errors for the `acceptability` scores per condition (after aggregating the different observations per participant). Compare these values with the means and standard errors that are returned by `emmeans` for the ANOVA on acceptability scores. How can you explain the (small) differences?
+
+First, calling the `emmeans` calculated for `acceptability`
+```{r}
+e2
+```
+Calculating means and standard errors 'manually':
+```{r}
+s1 <- d2 %>% group_by(condition) %>% summarise(avg=mean(acceptability),se1=sd(acceptability)/sqrt(n()))
+s1
+```
+While the means are the same between the two, note the difference in standard errors. The ones calculated 'manually' are slightly larger. This is because `emmeans` uses the residual standard error in its calulcation collected from the `lm` regression while when calculating it 'manually' the standard deviation is the standard deviation of `acceptability` for each condition. Thus, this results in small differences between the two. To get the 'correct' standard errors, this can be done by simply using the standard deviation from the original regression instead:
+```{r}
+summary(lm(acceptability~condition,d2))
+```
+The standard error is 0.861:
+```{r}
+(s2 <- d2 %>% group_by(condition) %>% summarise(mean=mean(acceptability),se2=(0.861/sqrt(n()))))
+```
+```{r}
+e2
+```
+Now, we get identical results.
+
+
